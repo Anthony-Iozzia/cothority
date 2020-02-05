@@ -1,6 +1,7 @@
 package bevm
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math/big"
 
@@ -266,6 +267,8 @@ func (c *contractBEvm) Invoke(rst byzcoin.ReadOnlyStateTrie,
 		// Compute the timestamp for the EVM, converting [ns] to [s]
 		evmTs := uint64(tr.GetCurrentBlockTimestamp() / 1e9)
 
+		log.Lvlf2("Transaction hash = '%s'", ethTx.Hash().Hex())
+		stateDb.Prepare(ethTx.Hash(), common.Hash{}, 0)
 		txReceipt, err := sendTx(&ethTx, stateDb, evmTs)
 		if err != nil {
 			return nil, nil,
@@ -280,6 +283,36 @@ func (c *contractBEvm) Invoke(rst byzcoin.ReadOnlyStateTrie,
 		}
 		log.Lvlf2("\\--> status = %d, gas used = %d, receipt = %s",
 			txReceipt.Status, txReceipt.GasUsed, txReceipt.TxHash.Hex())
+
+		// var bcStateChanges []byzcoin.StateChange
+		// cin := coins
+		for _, logEntry := range txReceipt.Logs {
+			log.Lvlf1("--- log entry: index = %d, address = %s, data = %s",
+				logEntry.Index,
+				logEntry.Address.Hex(),
+				hex.EncodeToString(logEntry.Data),
+			)
+
+			// // If log entry is a ByzCoin instruction:
+			// gs, ok := rst.(byzcoin.GlobalState)
+			// if !ok {
+			// 	return nil, nil,
+			// 		xerrors.Errorf("internal error: got rst as %v, "+
+			// 			"expected GlobalState", rst)
+			// }
+
+			// // Decode log entry to proper instruction --> bcInst
+			// bcInst := byzcoin.Instruction{}
+			// bcSc, cout, err := gs.ExecuteInstruction(gs, cin, bcInst, nil)
+			// if err != nil {
+			// 	return nil, nil,
+			// 		xerrors.Errorf("failed to execute instruction %v: %v",
+			// 			bcInst, err)
+			// }
+
+			// cin = cout
+			// bcStateChanges = append(bcStateChanges, bcSc...)
+		}
 
 		contractState, stateChanges, err := NewContractState(stateDb)
 		if err != nil {
@@ -301,6 +334,8 @@ func (c *contractBEvm) Invoke(rst byzcoin.ReadOnlyStateTrie,
 			byzcoin.NewStateChange(byzcoin.Update, inst.InstanceID,
 				ContractBEvmID, contractData, darcID),
 		}, stateChanges...)
+
+		// sc = append(sc, bcStateChanges...)
 
 	default:
 		err = fmt.Errorf("unknown Invoke command: '%s'", inst.Invoke.Command)
