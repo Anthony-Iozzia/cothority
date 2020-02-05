@@ -19,6 +19,7 @@ type GlobalState interface {
 	ReadOnlyStateTrie
 	ReadOnlySkipChain
 	TimeReader
+	InstructionExecutor
 }
 
 // ReadOnlyStateTrie is the read-only interface for StagingStateTrie and
@@ -56,10 +57,17 @@ type TimeReader interface {
 	GetCurrentBlockTimestamp() int64
 }
 
+// InstructionExecutor is an interface allowing to execute a ByzCoin instruction
+type InstructionExecutor interface {
+	ExecuteInstruction(gs GlobalState, cin []Coin, instr Instruction,
+		ctxHash []byte) (scs StateChanges, cout []Coin, err error)
+}
+
 type globalState struct {
 	ReadOnlyStateTrie
 	ReadOnlySkipChain
 	TimeReader
+	InstructionExecutor
 }
 
 var _ GlobalState = (*globalState)(nil)

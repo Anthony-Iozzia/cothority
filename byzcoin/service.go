@@ -2187,13 +2187,13 @@ func (s *Service) processOneTx(sst *stagingStateTrie, tx ClientTransaction,
 
 	// convert ReadOnlyStateTrie to a GlobalState so that contracts may cast it if they wish
 	roSC := newROSkipChain(s.skService(), scID)
-	gs := globalState{sst, roSC, &currentBlockInfo{timestamp}}
+	gs := globalState{sst, roSC, &currentBlockInfo{timestamp}, s}
 
 	h := tx.Instructions.Hash()
 	var statesTemp StateChanges
 	var cin []Coin
 	for _, instr := range tx.Instructions {
-		scs, cout, err := s.executeInstruction(gs, cin, instr, h, scID)
+		scs, cout, err := s.ExecuteInstruction(gs, cin, instr, h)
 		if err != nil {
 			_, _, cid, _, err2 := sst.GetValues(instr.InstanceID.Slice())
 			if err2 != nil {
@@ -2304,7 +2304,10 @@ func (s *Service) GetContractInstance(contractName string, in []byte) (Contract,
 	return c, nil
 }
 
-func (s *Service) executeInstruction(gs GlobalState, cin []Coin, instr Instruction, ctxHash []byte, scID skipchain.SkipBlockID) (scs StateChanges, cout []Coin, err error) {
+// ExecuteInstruction executes a ByzCoin instruction
+func (s *Service) ExecuteInstruction(gs GlobalState, cin []Coin,
+	instr Instruction, ctxHash []byte) (scs StateChanges, cout []Coin,
+	err error) {
 	defer func() {
 		if re := recover(); re != nil {
 			err = xerrors.Errorf("executing instr: %v", re)
