@@ -287,56 +287,11 @@ func (c *contractBEvm) Invoke(rst byzcoin.ReadOnlyStateTrie,
 		log.Lvlf2("\\--> status = %d, gas used = %d, receipt = %s",
 			txReceipt.Status, txReceipt.GasUsed, txReceipt.TxHash.Hex())
 
-		eventsAbi, err := abi.JSON(strings.NewReader(eventsAbiJSON))
+		bcStateChanges, tmpCoins, err := handleLogs(txReceipt.Logs, rst, cout)
 		if err != nil {
 			return nil, nil, err // FIXME
 		}
-
-		for _, event := range eventsAbi.Events {
-			log.Lvlf1("event '%s' --> %s", event.Name, event.Id().Hex())
-		}
-
-		// var bcStateChanges []byzcoin.StateChange
-		// cin := coins
-		for _, logEntry := range txReceipt.Logs {
-			log.Lvlf1("--- log entry:\n    index = %d\n    address = %s\n"+
-				"    topics[0] = %s\n    data = %s",
-				logEntry.Index,
-				logEntry.Address.Hex(),
-				logEntry.Topics[0].Hex(),
-				hex.EncodeToString(logEntry.Data),
-			)
-
-			eventData, err := unpackEvent(eventsAbi,
-				logEntry.Topics[0], logEntry.Data)
-			if err != nil {
-				log.LLvlf1("Error unpacking event: %v", err)
-				continue
-			}
-
-			log.Lvlf1("Unpacked event: %+v [%v]", eventData,
-				reflect.TypeOf(eventData))
-
-			// // If log entry is a ByzCoin instruction:
-			// gs, ok := rst.(byzcoin.GlobalState)
-			// if !ok {
-			// 	return nil, nil,
-			// 		xerrors.Errorf("internal error: got rst as %v, "+
-			// 			"expected GlobalState", rst)
-			// }
-
-			// // Decode log entry to proper instruction --> bcInst
-			// bcInst := byzcoin.Instruction{}
-			// bcSc, cout, err := gs.ExecuteInstruction(gs, cin, bcInst, nil)
-			// if err != nil {
-			// 	return nil, nil,
-			// 		xerrors.Errorf("failed to execute instruction %v: %v",
-			// 			bcInst, err)
-			// }
-
-			// cin = cout
-			// bcStateChanges = append(bcStateChanges, bcSc...)
-		}
+		cout = tmpCoins
 
 		contractState, stateChanges, err := NewContractState(stateDb)
 		if err != nil {
@@ -359,7 +314,7 @@ func (c *contractBEvm) Invoke(rst byzcoin.ReadOnlyStateTrie,
 				ContractBEvmID, contractData, darcID),
 		}, stateChanges...)
 
-		// sc = append(sc, bcStateChanges...)
+		sc = append(sc, bcStateChanges...)
 
 	default:
 		err = fmt.Errorf("unknown Invoke command: '%s'", inst.Invoke.Command)
@@ -436,4 +391,115 @@ func (c *contractBEvm) Delete(rst byzcoin.ReadOnlyStateTrie,
 	}, stateChanges...)
 
 	return
+}
+
+func handleLogs(logEntries []*types.Log, rst byzcoin.ReadOnlyStateTrie,
+	coins []byzcoin.Coin) ([]byzcoin.StateChange, []byzcoin.Coin, error) {
+	eventsAbi, err := abi.JSON(strings.NewReader(eventsAbiJSON))
+	if err != nil {
+		return nil, nil, err // FIXME
+	}
+
+	eventSc := []byzcoin.StateChange{}
+
+	gs, ok := rst.(byzcoin.GlobalState)
+	if !ok {
+		return nil, nil, xerrors.Errorf("internal ereror: cannot convert " +
+			"rst to gs") // FIXME
+	}
+
+	// var bcStateChanges []byzcoin.StateChange
+	// cin := coins
+	for _, logEntry := range logEntries {
+		log.Lvlf1("--- log entry:\n    index = %d\n    address = %s\n"+
+			"    topics[0] = %s\n    data = %s",
+			logEntry.Index,
+			logEntry.Address.Hex(),
+			logEntry.Topics[0].Hex(),
+			hex.EncodeToString(logEntry.Data),
+		)
+
+		evmContractAddress := logEntry.Address.Hex()
+
+		// See https://solidity.readthedocs.io/en/v0.5.3/abi-spec.html#events
+		eventID := logEntry.Topics[0]
+
+		eventName, event, err := unpackEvent(eventsAbi, eventID, logEntry.Data)
+		if err != nil {
+			return nil, nil, err // FIXME
+		}
+
+		log.Lvlf1("Event '%s': %+v [%v]", eventName, event,
+			reflect.TypeOf(event))
+
+		switch eventName {
+		case "ByzcoinSpawn":
+			spawnEvent, ok := event.(struct {
+				InstanceID [32]byte
+				ContractID string
+				Args       []struct {
+					Name  string
+					Value []byte
+				}
+			})
+			if !ok {
+				return nil, nil, xerrors.Errorf("failed to convert "+
+					"SpawnEvent: %v", err) // FIXME
+			}
+
+			args := byzcoin.Arguments{}
+			for _, arg := range spawnEvent.Args {
+				args = append(args, arg)
+			}
+
+			instr := byzcoin.Instruction{
+				InstanceID: spawnEvent.InstanceID,
+				Spawn: &byzcoin.Spawn{
+					ContractID: spawnEvent.ContractID,
+					Args:       args,
+				},
+				SignerIdentities: []darc.Identity{
+					darc.Identity{Ed25519: &darc.IdentityEd25519{}}, // FIXME
+				},
+				Signatures:    [][]byte{[]byte(evmContractAddress)}, // FIXME
+				SignerCounter: []uint64{0},                          // FIXME
+			}
+
+			log.Lvlf1("instr: %v", instr)
+
+			sc, tmpCoins, err := gs.ExecuteInstruction(gs, coins, instr, nil)
+			if err != nil {
+				return nil, nil, err // FIXME
+			}
+			coins = tmpCoins
+
+			eventSc = append(eventSc, sc...)
+
+		default:
+			log.Lvlf1("skipping event '%s'", eventName)
+			continue
+		}
+
+		// // If log entry is a ByzCoin instruction:
+		// gs, ok := rst.(byzcoin.GlobalState)
+		// if !ok {
+		// 	return nil, nil,
+		// 		xerrors.Errorf("internal error: got rst as %v, "+
+		// 			"expected GlobalState", rst)
+		// }
+
+		// // Decode log entry to proper instruction --> bcInst
+		// bcInst := byzcoin.Instruction{}
+		// bcSc, cout, err := gs.ExecuteInstruction(gs, cin, bcInst, nil)
+		// if err != nil {
+		// 	return nil, nil,
+		// 		xerrors.Errorf("failed to execute instruction %v: %v",
+		// 			bcInst, err)
+		// }
+
+		// cin = cout
+		// bcStateChanges = append(bcStateChanges, bcSc...)
+	}
+
+	return eventSc, coins, nil
 }
