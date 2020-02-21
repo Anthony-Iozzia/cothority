@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"reflect"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -306,6 +307,16 @@ func (c *contractBEvm) Invoke(rst byzcoin.ReadOnlyStateTrie,
 				hex.EncodeToString(logEntry.Data),
 			)
 
+			eventData, err := unpackEvent(eventsAbi,
+				logEntry.Topics[0], logEntry.Data)
+			if err != nil {
+				log.LLvlf1("Error unpacking event: %v", err)
+				continue
+			}
+
+			log.Lvlf1("Unpacked event: %+v [%v]", eventData,
+				reflect.TypeOf(eventData))
+
 			// // If log entry is a ByzCoin instruction:
 			// gs, ok := rst.(byzcoin.GlobalState)
 			// if !ok {
@@ -426,103 +437,3 @@ func (c *contractBEvm) Delete(rst byzcoin.ReadOnlyStateTrie,
 
 	return
 }
-
-const eventsAbiJSON = `` +
-	`[` +
-	`  {` +
-	`    "anonymous": false,` +
-	`    "inputs": [` +
-	`      {` +
-	`        "indexed": false,` +
-	`        "name": "instanceID",` +
-	`        "type": "bytes32"` +
-	`      },` +
-	`      {` +
-	`        "indexed": false,` +
-	`        "name": "contractID",` +
-	`        "type": "string"` +
-	`      },` +
-	`      {` +
-	`        "components": [` +
-	`          {` +
-	`            "name": "name",` +
-	`            "type": "string"` +
-	`          },` +
-	`          {` +
-	`            "name": "value",` +
-	`            "type": "bytes"` +
-	`          }` +
-	`        ],` +
-	`        "indexed": false,` +
-	`        "name": "args",` +
-	`        "type": "tuple[]"` +
-	`      }` +
-	`    ],` +
-	`    "name": "ByzcoinSpawn",` +
-	`    "type": "event"` +
-	`  },` +
-	`  {` +
-	`    "anonymous": false,` +
-	`    "inputs": [` +
-	`      {` +
-	`        "indexed": false,` +
-	`        "name": "instanceID",` +
-	`        "type": "bytes32"` +
-	`      },` +
-	`      {` +
-	`        "indexed": false,` +
-	`        "name": "contractID",` +
-	`        "type": "string"` +
-	`      },` +
-	`      {` +
-	`        "indexed": false,` +
-	`        "name": "command",` +
-	`        "type": "string"` +
-	`      },` +
-	`      {` +
-	`        "components": [` +
-	`          {` +
-	`            "name": "name",` +
-	`            "type": "string"` +
-	`          },` +
-	`          {` +
-	`            "name": "value",` +
-	`            "type": "bytes"` +
-	`          }` +
-	`        ],` +
-	`        "indexed": false,` +
-	`        "name": "args",` +
-	`        "type": "tuple[]"` +
-	`      }` +
-	`    ],` +
-	`    "name": "ByzcoinInvoke",` +
-	`    "type": "event"` +
-	`  },` +
-	`  {` +
-	`    "anonymous": false,` +
-	`    "inputs": [` +
-	`      {` +
-	`        "indexed": false,` +
-	`        "name": "instanceID",` +
-	`        "type": "bytes32"` +
-	`      },` +
-	`      {` +
-	`        "components": [` +
-	`          {` +
-	`            "name": "name",` +
-	`            "type": "string"` +
-	`          },` +
-	`          {` +
-	`            "name": "value",` +
-	`            "type": "bytes"` +
-	`          }` +
-	`        ],` +
-	`        "indexed": false,` +
-	`        "name": "args",` +
-	`        "type": "tuple[]"` +
-	`      }` +
-	`    ],` +
-	`    "name": "ByzcoinDelete",` +
-	`    "type": "event"` +
-	`  }` +
-	`]`
